@@ -24,9 +24,6 @@ import {
 
 import { useEffect, useRef, useState } from "react";
 
-
-
-
 import {
   DndContext,
   closestCenter,
@@ -53,7 +50,23 @@ import {
 } from "@tauri-apps/api/window";
 
 import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
-import { invoke } from "@tauri-apps/api/core";
+import {
+  getSelectedFinderFiles,
+  revealInFinder,
+} from "./services/fileService";
+
+import {
+  convertPdf,
+  convertImageToPdf,
+  type ConversionFormat,
+} from "./services/convertService";
+
+import { mergePdf } from "./services/mergeService";
+
+import {
+  splitPdf,
+  type SplitMode,
+} from "./services/splitService";
 import { AnimatePresence, motion } from "motion/react";
 
 
@@ -223,7 +236,7 @@ function App() {
     const shortcut = "Alt+Shift+Space";
 
     const showForma = async () => {
-      const files = await invoke<SelectedFile[]>("get_selected_finder_file");
+      const files = await getSelectedFinderFiles();
 
       console.log("[FORMA] Finder files:", files);
 
@@ -356,7 +369,9 @@ function App() {
   };
 
   // Convert file.
-  const handleConvert = async (format: "png" | "jpg" | "pdf") => {
+  const handleConvert = async (
+    format: ConversionFormat
+  ) => {
     if (!selectedFile) return;
 
     if (selectedFiles.length > 1) {
@@ -377,18 +392,15 @@ function App() {
 
     try {
       let result: string[];
-
+    
       if (isPdf) {
-        result = await invoke<string[]>("convert_pdf", {
-          inputPath: selectedFile.path,
-          outputFormat: format,
-        });
+        if (format === "pdf") return;
+    
+        result = await convertPdf(selectedFile.path, format);
       } else {
-        result = await invoke<string[]>("convert_image_to_pdf", {
-          inputPath: selectedFile.path,
-        });
+        result = await convertImageToPdf(selectedFile.path);
       }
-
+    
       setConversionResult(result);
     } catch (error) {
       setConversionError(String(error));
@@ -414,9 +426,9 @@ function App() {
     setMergeError(null);
 
     try {
-      const result = await invoke<string>("merge_pdf", {
-        inputPaths: selectedFiles.map((file) => file.path),
-      });
+      const result = await mergePdf(
+        selectedFiles.map((file) => file.path)
+      );
 
       setMergeResult(result);
     } catch (error) {
@@ -446,11 +458,11 @@ function App() {
     setSplitError(null);
 
     try {
-      const result = await invoke<string[]>("split_pdf", {
-        inputPath: selectedFile.path,
-        mode: splitMode,
-        pageRanges: splitMode === "range" ? pageRanges : null,
-      });
+      const result = await splitPdf(
+        selectedFile.path,
+        splitMode,
+        splitMode === "range" ? pageRanges : null
+      );
 
       setSplitResult(result);
     } catch (error) {
@@ -463,7 +475,7 @@ function App() {
   // Reveal output in Finder.
   const handleRevealInFinder = async (path: string) => {
     try {
-      await invoke("reveal_in_finder", { path });
+      await revealInFinder(path);
     } catch (error) {
       console.error("[FORMA] Failed to reveal file:", error);
 
