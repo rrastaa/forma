@@ -1,4 +1,3 @@
-
 import {
   File,
   X,
@@ -31,7 +30,9 @@ import {
 
 import { useSelectedFiles } from "./hooks/useSelectedFiles";
 import { useFinderShortcut } from "./hooks/useFinderShortcut";
+
 import { useConvert } from "./hooks/useConvert";
+import { FileContext } from "./components/file/fileContext";
 
 import {
   DndContext,
@@ -43,12 +44,10 @@ import {
 
 import {
   SortableContext,
-  useSortable,
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
 
-import { CSS } from "@dnd-kit/utilities";
 
 import {
   getCurrentWindow,
@@ -67,49 +66,11 @@ import { listen } from "@tauri-apps/api/event";
 
 import "./App.css";
 
-function SortableFileItem({
-  file,
-  index,
-}: {
-  file: SelectedFile;
-  index: number;
-}) {
-  const Icon = getFileIcon(file.extension);
+import { SortableFileItem } from "./components/file/sortableFileItem";
+import { SelectedFiles } from "./components/file/selectedFiles";
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
-    id: file.path,
-  });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    zIndex: isDragging ? 2 : 0,
-    position: "relative" as const,
-  };
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="selected-file-item"
-      {...attributes}
-      {...listeners}
-    >
-      <span className="file-order">{index + 1}</span>
-      <Icon size={17} />
-      <span className="selected-file-name">{file.name}</span>
-      <span className="drag-handle">⠿</span>
-    </div>
-  );
-}
+import { useMerge } from "./features/merge/useMerge";
+import { useSplit } from "./features/split/useSplit";
 
 function App() {
   console.log("[DEBUG] App component rendered");
@@ -151,34 +112,33 @@ function App() {
   // MERGE STATE
   // ==========================================
 
-  const [isMerging, setIsMerging] = useState(false);
-  const [mergeResult, setMergeResult] = useState<string | null>(null);
-  const [mergeError, setMergeError] = useState<string | null>(null);
-
-  const [mergeProgress, setMergeProgress] = useState<ProgressData>({
-    current: 0,
-    total: 0,
-    percentage: 0,
-    message: "Preparing merge...",
-  });
+  const {
+    isMerging,
+    mergeResult,
+    mergeError,
+    mergeProgress,
+    handleMerge,
+    resetMerge,
+    setMergeErrorMessage,
+  } = useMerge(selectedFiles);
 
   // ==========================================
   // SPLIT STATE
   // ==========================================
 
-  const [isSplitting, setIsSplitting] = useState(false);
-  const [splitResult, setSplitResult] = useState<string[] | null>(null);
-  const [splitError, setSplitError] = useState<string | null>(null);
-
-  const [splitMode, setSplitMode] = useState<"range" | "all">("range");
-  const [pageRanges, setPageRanges] = useState("");
-
-  const [splitProgress, setSplitProgress] = useState<ProgressData>({
-    current: 0,
-    total: 0,
-    percentage: 0,
-    message: "Preparing PDF split...",
-  });
+  const {
+    isSplitting,
+    splitResult,
+    splitError,
+    splitProgress,
+    splitMode,
+    setSplitMode,
+    pageRanges,
+    setPageRanges,
+    handleSplit,
+    resetSplit,
+    setSplitErrorMessage,
+  } = useSplit(selectedFiles);
 
   // ==========================================
   // DERIVED VALUES
@@ -210,13 +170,10 @@ function App() {
     setActiveOperation(null);
 
     resetConversion();
+    resetMerge();
 
-    setMergeResult(null);
-    setMergeError(null);
-
-    setSplitResult(null);
-    setSplitError(null);
-  }, [resetConversion]);
+    resetSplit();
+  }, [resetConversion, resetMerge, resetSplit]);
 
   // ==========================================
   // SHOW FORMA
@@ -239,11 +196,9 @@ function App() {
 
     resetConversion();
 
-    setMergeResult(null);
-    setMergeError(null);
+    resetMerge();
 
-    setSplitResult(null);
-    setSplitError(null);
+    resetSplit();
 
     setSplitMode("range");
     setPageRanges("");
@@ -277,7 +232,12 @@ function App() {
     await appWindow.setFocus();
 
     setIsVisible(true);
-  }, [loadSelectedFiles, setSelectedFiles, resetConversion]);
+  }, [
+    loadSelectedFiles,
+    setSelectedFiles,
+    resetConversion,
+    resetMerge,
+  ]);
 
   // ==========================================
   // FINDER SHORTCUT
@@ -309,67 +269,7 @@ function App() {
     })
   );
 
-  // ==========================================
-  // MERGE PROGRESS LISTENER
-  // ==========================================
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    const setupListener = async () => {
-      const cleanup = await listen<ProgressData>(
-        "merge-progress",
-        (event) => {
-          setMergeProgress(event.payload);
-        }
-      );
-
-      if (cancelled) {
-        cleanup();
-      } else {
-        unlisten = cleanup;
-      }
-    };
-
-    void setupListener();
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, []);
-
-  // ==========================================
-  // SPLIT PROGRESS LISTENER
-  // ==========================================
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    const setupListener = async () => {
-      const cleanup = await listen<ProgressData>(
-        "split-progress",
-        (event) => {
-          setSplitProgress(event.payload);
-        }
-      );
-
-      if (cancelled) {
-        cleanup();
-      } else {
-        unlisten = cleanup;
-      }
-    };
-
-    void setupListener();
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, []);
+  
 
   // ==========================================
   // KEYBOARD CONTROLS
@@ -441,71 +341,8 @@ function App() {
     });
   };
 
-  // ==========================================
-  // MERGE PDF
-  // ==========================================
 
-  const handleMerge = async () => {
-    if (selectedFiles.length < 2) {
-      setMergeError("Select at least 2 PDF files.");
-      return;
-    }
-
-    if (!canMerge) {
-      setMergeError("All selected files must be PDF.");
-      return;
-    }
-
-    setIsMerging(true);
-    setMergeResult(null);
-    setMergeError(null);
-
-    try {
-      const result = await mergePdf(
-        selectedFiles.map((file) => file.path)
-      );
-
-      setMergeResult(result);
-    } catch (error) {
-      setMergeError(String(error));
-    } finally {
-      setIsMerging(false);
-    }
-  };
-
-  // ==========================================
-  // SPLIT PDF
-  // ==========================================
-
-  const handleSplit = async () => {
-    if (!canSplit || !selectedFile) {
-      setSplitError("Select exactly one PDF file to split.");
-      return;
-    }
-
-    if (splitMode === "range" && !pageRanges.trim()) {
-      setSplitError("Please enter page ranges.");
-      return;
-    }
-
-    setIsSplitting(true);
-    setSplitResult(null);
-    setSplitError(null);
-
-    try {
-      const result = await splitPdf(
-        selectedFile.path,
-        splitMode,
-        splitMode === "range" ? pageRanges : null
-      );
-
-      setSplitResult(result);
-    } catch (error) {
-      setSplitError(String(error));
-    } finally {
-      setIsSplitting(false);
-    }
-  };
+  
 
   // ==========================================
   // REVEAL OUTPUT IN FINDER
@@ -518,9 +355,9 @@ function App() {
       console.error("[FORMA] Failed to reveal file:", error);
 
       if (activeOperation === "Merge") {
-        setMergeError(String(error));
+        setMergeErrorMessage(String(error));
       } else if (activeOperation === "Split") {
-        setSplitError(String(error));
+        setSplitErrorMessage(String(error));
       } else {
         console.error(
           "[FORMA] Failed to reveal conversion output:",
@@ -556,89 +393,16 @@ function App() {
             {/* STACK: all dynamic panels grow upward from the hotbar. */}
             <div className="stack-container">
               {/* File information panel */}
-              <AnimatePresence>
-                <motion.section
-                  key="file-context"
-                  className="stack-panel file-context"
-                  initial={{ opacity: 0, y: 18, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <div className="file-icon">
-                    <FileIcon size={23} />
-                  </div>
-
-                  <div className="file-information">
-                    <span className="file-name">
-                      {selectedFiles.length > 1
-                        ? `${selectedFiles.length} files selected`
-                        : selectedFile?.name ?? "No file selected"}
-                    </span>
-
-                    <span className="file-description">
-                      {selectedFiles.length > 1
-                        ? "Drag files below to change their order"
-                        : selectedFile
-                          ? `${selectedFile.extension.toUpperCase()} file · Ready to process`
-                          : "Select a file in Finder to get started"}
-                    </span>
-                  </div>
-
-                  <button
-                    className="close-button"
-                    onClick={closeForma}
-                    title="Close Forma"
-                  >
-                    <X size={18} />
-                  </button>
-                </motion.section>
-              </AnimatePresence>
+              <FileContext
+                selectedFiles={selectedFiles}
+                onClose={closeForma}
+              />
 
               {/* Selected files panel */}
-              <AnimatePresence>
-                {selectedFiles.length > 1 && (
-                  <motion.section
-                    key="selected-files"
-                    className="stack-panel selected-files-panel"
-                    initial={{ opacity: 0, y: 18, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    <div className="panel-heading">
-                      <div>
-                        <strong>Selected files</strong>
-                        <span>{selectedFiles.length} items · Drag to reorder</span>
-                      </div>
-                      <Combine size={17} />
-                    </div>
-
-                    <DndContext
-                      sensors={sensors}
-                      collisionDetection={closestCenter}
-                      onDragEnd={({ active, over }) => {
-                        handleDragEnd(active.id, over?.id);
-                      }}
-                    >
-                      <SortableContext
-                        items={selectedFiles.map((file) => file.path)}
-                        strategy={verticalListSortingStrategy}
-                      >
-                        <div className="selected-files-list">
-                          {selectedFiles.map((file, index) => (
-                            <SortableFileItem
-                              key={file.path}
-                              file={file}
-                              index={index}
-                            />
-                          ))}
-                        </div>
-                      </SortableContext>
-                    </DndContext>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <SelectedFiles
+                selectedFiles={selectedFiles}
+                onReorder={setSelectedFiles}
+              />
 
               {/* Convert submenu */}
               <AnimatePresence mode="popLayout">
@@ -786,13 +550,11 @@ function App() {
 
                     <div className="split-mode-list">
                       <button
-                        className={`split-mode-button ${
-                          splitMode === "range" ? "active" : ""
-                        }`}
+                        className={`split-mode-button ${splitMode === "range" ? "active" : ""
+                          }`}
                         onClick={() => {
                           setSplitMode("range");
-                          setSplitError(null);
-                          setSplitResult(null);
+                          resetSplit();
                         }}
                       >
                         <Scissors size={19} />
@@ -803,13 +565,11 @@ function App() {
                       </button>
 
                       <button
-                        className={`split-mode-button ${
-                          splitMode === "all" ? "active" : ""
-                        }`}
+                        className={`split-mode-button ${splitMode === "all" ? "active" : ""
+                          }`}
                         onClick={() => {
                           setSplitMode("all");
-                          setSplitError(null);
-                          setSplitResult(null);
+                          resetSplit();
                         }}
                       >
                         <FileText size={19} />
@@ -1163,9 +923,8 @@ function App() {
                   return (
                     <motion.button
                       key={operation.name}
-                      className={`operation-button ${
-                        isActive ? "active" : ""
-                      } ${!isAvailable ? "disabled" : ""}`}
+                      className={`operation-button ${isActive ? "active" : ""
+                        } ${!isAvailable ? "disabled" : ""}`}
                       disabled={!isAvailable}
                       onClick={() => {
                         setActiveOperation(
@@ -1175,12 +934,9 @@ function App() {
                         );
 
                         resetConversion();
+                        resetMerge();
 
-                        setMergeResult(null);
-                        setMergeError(null);
-
-                        setSplitResult(null);
-                        setSplitError(null);
+                        resetSplit();
                       }}
                       whileHover={isAvailable ? { y: -4, scale: 1.04 } : {}}
                       whileTap={isAvailable ? { scale: 0.94 } : {}}
