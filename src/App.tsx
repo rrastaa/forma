@@ -1,13 +1,8 @@
 import {
   File,
-  X,
   CheckCircle2,
   AlertCircle,
   LoaderCircle,
-  Combine,
-  FileImage,
-  FileText,
-  Scissors,
 } from "lucide-react";
 
 import type { SelectedFile } from "./types/file";
@@ -35,16 +30,12 @@ import { useConvert } from "./hooks/useConvert";
 import { FileContext } from "./components/file/fileContext";
 
 import {
-  DndContext,
-  closestCenter,
   PointerSensor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
 
 import {
-  SortableContext,
-  verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
 
@@ -58,11 +49,8 @@ import {
 } from "@tauri-apps/api/window";
 
 import { revealInFinder } from "./services/fileService";
-import { mergePdf } from "./services/mergeService";
-import { splitPdf } from "./services/splitService";
 
 import { AnimatePresence, motion } from "motion/react";
-import { listen } from "@tauri-apps/api/event";
 
 import "./App.css";
 
@@ -71,6 +59,10 @@ import { SelectedFiles } from "./components/file/selectedFiles";
 
 import { useMerge } from "./features/merge/useMerge";
 import { useSplit } from "./features/split/useSplit";
+
+import { ConvertMenu } from "./features/convert/convertMenu";
+import { MergeMenu } from "./features/merge/mergeMenu";
+import { SplitMenu } from "./features/split/splitMenu";
 
 function App() {
   console.log("[DEBUG] App component rendered");
@@ -269,7 +261,7 @@ function App() {
     })
   );
 
-  
+
 
   // ==========================================
   // KEYBOARD CONTROLS
@@ -320,29 +312,9 @@ function App() {
   // REORDER SELECTED FILES
   // ==========================================
 
-  const handleDragEnd = (
-    activeId: string | number,
-    overId?: string | number
-  ) => {
-    if (!overId || activeId === overId) return;
-
-    setSelectedFiles((current) => {
-      const oldIndex = current.findIndex(
-        (file) => file.path === activeId
-      );
-
-      const newIndex = current.findIndex(
-        (file) => file.path === overId
-      );
-
-      if (oldIndex === -1 || newIndex === -1) return current;
-
-      return arrayMove(current, oldIndex, newIndex);
-    });
-  };
 
 
-  
+
 
   // ==========================================
   // REVEAL OUTPUT IN FINDER
@@ -405,219 +377,38 @@ function App() {
               />
 
               {/* Convert submenu */}
-              <AnimatePresence mode="popLayout">
-                {activeOperation === "Convert" && (
-                  <motion.section
-                    key="convert-menu"
-                    className="stack-panel submenu-panel"
-                    initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 14, scale: 0.98 }}
-                    transition={{ duration: 0.22, ease: "easeOut" }}
-                  >
-                    <div className="submenu-header">
-                      <button className="back-button" onClick={resetOperation}>
-                        <span>←</span> Back
-                      </button>
-
-                      <div>
-                        <strong>
-                          {selectedFile?.extension.toLowerCase() === "pdf"
-                            ? "Convert PDF"
-                            : "Convert Image"}
-                        </strong>
-
-                        <span>
-                          {selectedFile?.extension.toLowerCase() === "pdf"
-                            ? "Choose your output format"
-                            : "Convert your image into PDF"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="format-list">
-                      {selectedFile?.extension.toLowerCase() === "pdf" ? (
-                        <>
-                          <button
-                            className="format-button"
-                            disabled={isConverting || selectedFiles.length > 1}
-                            onClick={() => handleConvert("png")}
-                          >
-                            <FileImage size={22} />
-                            <span>
-                              <strong>PNG</strong>
-                              <small>Portable Network Graphics</small>
-                            </span>
-                            <small>→</small>
-                          </button>
-
-                          <button
-                            className="format-button"
-                            disabled={isConverting || selectedFiles.length > 1}
-                            onClick={() => handleConvert("jpg")}
-                          >
-                            <FileImage size={22} />
-                            <span>
-                              <strong>JPG</strong>
-                              <small>JPEG Image Format</small>
-                            </span>
-                            <small>→</small>
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          className="format-button"
-                          disabled={isConverting || selectedFiles.length > 1}
-                          onClick={() => handleConvert("pdf")}
-                        >
-                          <FileText size={22} />
-                          <span>
-                            <strong>PDF</strong>
-                            <small>Portable Document Format</small>
-                          </span>
-                          <small>→</small>
-                        </button>
-                      )}
-                    </div>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <ConvertMenu
+                isOpen={activeOperation === "Convert"}
+                selectedFile={selectedFile}
+                selectedFiles={selectedFiles}
+                isConverting={isConverting}
+                handleConvert={handleConvert}
+                onBack={resetOperation}
+              />
 
               {/* Merge submenu */}
-              <AnimatePresence mode="popLayout">
-                {activeOperation === "Merge" && (
-                  <motion.section
-                    key="merge-menu"
-                    className="stack-panel submenu-panel"
-                    initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 14, scale: 0.98 }}
-                    transition={{ duration: 0.22, ease: "easeOut" }}
-                  >
-                    <div className="submenu-header">
-                      <button className="back-button" onClick={resetOperation}>
-                        <span>←</span> Back
-                      </button>
-
-                      <div>
-                        <strong>Merge PDF</strong>
-                        <span>Combine selected PDF files into one document</span>
-                      </div>
-                    </div>
-
-                    <div className="merge-summary">
-                      <div className="merge-file-count">
-                        <FileText size={18} />
-                        <span>{selectedFiles.length} PDF files selected</span>
-                      </div>
-
-                      <p>Files will be merged in the order shown above.</p>
-                    </div>
-
-                    <button
-                      className="merge-button"
-                      onClick={handleMerge}
-                      disabled={isMerging || !canMerge}
-                    >
-                      {isMerging ? "Merging..." : "Merge PDF"}
-                      {!isMerging && <Combine size={16} />}
-                    </button>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <MergeMenu
+                isOpen={activeOperation === "Merge"}
+                selectedFiles={selectedFiles}
+                isMerging={isMerging}
+                canMerge={canMerge}
+                onMerge={handleMerge}
+                onBack={resetOperation}
+              />
 
               {/* Split submenu */}
-              <AnimatePresence mode="popLayout">
-                {activeOperation === "Split" && (
-                  <motion.section
-                    key="split-menu"
-                    className="stack-panel submenu-panel"
-                    initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 14, scale: 0.98 }}
-                    transition={{ duration: 0.22, ease: "easeOut" }}
-                  >
-                    <div className="submenu-header">
-                      <button className="back-button" onClick={resetOperation}>
-                        <span>←</span> Back
-                      </button>
-
-                      <div>
-                        <strong>Split PDF</strong>
-                        <span>Separate your PDF into multiple documents</span>
-                      </div>
-                    </div>
-
-                    <div className="split-mode-list">
-                      <button
-                        className={`split-mode-button ${splitMode === "range" ? "active" : ""
-                          }`}
-                        onClick={() => {
-                          setSplitMode("range");
-                          resetSplit();
-                        }}
-                      >
-                        <Scissors size={19} />
-                        <span>
-                          <strong>Split by Range</strong>
-                          <small>Choose specific pages or page ranges</small>
-                        </span>
-                      </button>
-
-                      <button
-                        className={`split-mode-button ${splitMode === "all" ? "active" : ""
-                          }`}
-                        onClick={() => {
-                          setSplitMode("all");
-                          resetSplit();
-                        }}
-                      >
-                        <FileText size={19} />
-                        <span>
-                          <strong>Split All Pages</strong>
-                          <small>Save every page as a separate PDF</small>
-                        </span>
-                      </button>
-                    </div>
-
-                    {splitMode === "range" && (
-                      <div className="split-range-section">
-                        <label htmlFor="page-ranges">Page ranges</label>
-
-                        <input
-                          id="page-ranges"
-                          className="split-range-input"
-                          type="text"
-                          value={pageRanges}
-                          onChange={(event) =>
-                            setPageRanges(event.target.value)
-                          }
-                          placeholder="e.g. 1-3, 5, 8-10"
-                          disabled={isSplitting}
-                        />
-
-                        <small>
-                          Separate multiple ranges with commas. Each range creates a new PDF.
-                        </small>
-                      </div>
-                    )}
-
-                    <button
-                      className="merge-button split-button"
-                      onClick={handleSplit}
-                      disabled={isSplitting || !canSplit}
-                    >
-                      {isSplitting
-                        ? "Splitting..."
-                        : splitMode === "range"
-                          ? "Split Selected Pages"
-                          : "Split All Pages"}
-
-                      {!isSplitting && <Scissors size={16} />}
-                    </button>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <SplitMenu
+                isOpen={activeOperation === "Split"}
+                splitMode={splitMode}
+                setSplitMode={setSplitMode}
+                pageRanges={pageRanges}
+                setPageRanges={setPageRanges}
+                isSplitting={isSplitting}
+                canSplit={canSplit}
+                onSplit={handleSplit}
+                onResetSplit={resetSplit}
+                onBack={resetOperation}
+              />
 
               {/* Conversion progress panel */}
               <AnimatePresence>
