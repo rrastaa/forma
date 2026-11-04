@@ -273,7 +273,7 @@ fn convert_image_to_pdf_blocking(
         .unwrap_or("")
         .to_lowercase();
 
-    if !["png", "jpg", "jpeg", "webp"].contains(&extension.as_str()) {
+    if !["png", "jpg", "jpeg", "webp","docx"].contains(&extension.as_str()) {
         return Err("Only PNG, JPG, JPEG, and WebP images are supported.".to_string());
     }
 

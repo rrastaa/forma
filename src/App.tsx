@@ -1,20 +1,8 @@
-import {
-  File,
-  CheckCircle2,
-  AlertCircle,
-  LoaderCircle,
-} from "lucide-react";
 
 import type { SelectedFile } from "./types/file";
-import {
-  operations,
-  type ProgressData,
-} from "./types/operation";
+import { operations } from "./types/operation";
 
-import {
-  getFileIcon,
-  getAvailableOperations,
-} from "./utils/fileUtils";
+import { getAvailableOperations } from "./utils/fileUtils";
 
 import {
   useCallback,
@@ -27,18 +15,11 @@ import { useSelectedFiles } from "./hooks/useSelectedFiles";
 import { useFinderShortcut } from "./hooks/useFinderShortcut";
 
 import { useConvert } from "./hooks/useConvert";
+import { useMerge } from "./features/merge/useMerge";
+import { useSplit } from "./features/split/useSplit";
+
 import { FileContext } from "./components/file/fileContext";
-
-import {
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-
-import {
-  arrayMove,
-} from "@dnd-kit/sortable";
-
+import { SelectedFiles } from "./components/file/selectedFiles";
 
 import {
   getCurrentWindow,
@@ -52,17 +33,15 @@ import { revealInFinder } from "./services/fileService";
 
 import { AnimatePresence, motion } from "motion/react";
 
-import "./App.css";
-
-import { SortableFileItem } from "./components/file/sortableFileItem";
-import { SelectedFiles } from "./components/file/selectedFiles";
-
-import { useMerge } from "./features/merge/useMerge";
-import { useSplit } from "./features/split/useSplit";
-
 import { ConvertMenu } from "./features/convert/convertMenu";
 import { MergeMenu } from "./features/merge/mergeMenu";
 import { SplitMenu } from "./features/split/splitMenu";
+
+import { ProgressPanel } from "./components/ui/progressPanel";
+import { ErrorPanel } from "./components/ui/errorPanel";
+import { SuccessPanel } from "./components/ui/successPanel";
+
+import "./App.css";
 
 function App() {
   console.log("[DEBUG] App component rendered");
@@ -150,10 +129,6 @@ function App() {
     selectedFiles.length === 1 &&
     selectedFile?.extension.toLowerCase() === "pdf";
 
-  const FileIcon = selectedFile
-    ? getFileIcon(selectedFile.extension)
-    : File;
-
   // ==========================================
   // RESET OPERATION
   // ==========================================
@@ -229,6 +204,9 @@ function App() {
     setSelectedFiles,
     resetConversion,
     resetMerge,
+    resetSplit,
+    setSplitMode,
+    setPageRanges,
   ]);
 
   // ==========================================
@@ -248,20 +226,6 @@ function App() {
   useEffect(() => {
     selectedFilesRef.current = selectedFiles;
   }, [selectedFiles]);
-
-  // ==========================================
-  // DRAG AND DROP CONFIGURATION
-  // ==========================================
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
-    })
-  );
-
-
 
   // ==========================================
   // KEYBOARD CONTROLS
@@ -411,280 +375,85 @@ function App() {
               />
 
               {/* Conversion progress panel */}
-              <AnimatePresence>
-                {activeOperation === "Convert" && isConverting && (
-                  <motion.section
-                    key="conversion-progress"
-                    className="stack-panel status-panel progress-panel"
-                    initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                    transition={{ duration: 0.22 }}
-                  >
-                    <div className="status-heading">
-                      <LoaderCircle className="spin-icon" size={18} />
-                      <strong>{conversionProgress.message}</strong>
-                      <span>{conversionProgress.percentage}%</span>
-                    </div>
-
-                    <div className="progress-track">
-                      <motion.div
-                        className="progress-fill"
-                        animate={{
-                          width: `${conversionProgress.percentage}%`,
-                        }}
-                        transition={{ duration: 0.3, ease: "easeOut" }}
-                      />
-                    </div>
-
-                    <span className="progress-pages">
-                      {conversionProgress.current} of {conversionProgress.total} pages
-                    </span>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <ProgressPanel
+                isVisible={activeOperation === "Convert" && isConverting}
+                panelKey="conversion-progress"
+                message={conversionProgress.message}
+                percentage={conversionProgress.percentage}
+                detail={`${conversionProgress.current} of ${conversionProgress.total} pages`}
+              />
 
               {/* Conversion error panel */}
-              <AnimatePresence>
-                {activeOperation === "Convert" && conversionError && (
-                  <motion.section
-                    key="conversion-error"
-                    className="stack-panel status-panel error-panel"
-                    initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                    transition={{ duration: 0.22 }}
-                  >
-                    <div className="status-heading">
-                      <AlertCircle size={18} />
-                      <strong>Conversion failed</strong>
-                    </div>
-                    <span className="status-description">{conversionError}</span>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <ErrorPanel
+                isVisible={activeOperation === "Convert" && !!conversionError}
+                panelKey="conversion-error"
+                title="Conversion failed"
+                message={conversionError ?? ""}
+              />
 
               {/* Conversion success panel */}
-              <AnimatePresence>
-                {activeOperation === "Convert" && conversionResult && (
-                  <motion.section
-                    key="conversion-success"
-                    className="stack-panel status-panel success-panel"
-                    initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                    transition={{ duration: 0.22 }}
-                  >
-                    <div className="success-content">
-                      <div className="status-heading">
-                        <CheckCircle2 size={18} />
-                        <strong>Conversion completed!</strong>
-                      </div>
-
-                      <span className="status-description">
-                        {conversionResult.length} file(s) successfully generated.
-                      </span>
-
-                      <div className="result-files">
-                        {conversionResult.slice(0, 3).map((path) => (
-                          <span key={path}>{path.split("/").pop()}</span>
-                        ))}
-
-                        {conversionResult.length > 3 && (
-                          <span>+{conversionResult.length - 3} more files</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <button
-                      className="reveal-button"
-                      onClick={() => handleRevealInFinder(conversionResult[0])}
-                    >
-                      <File size={14} />
-                      Show in Finder
-                    </button>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <SuccessPanel
+                isVisible={activeOperation === "Convert" && !!conversionResult}
+                panelKey="conversion-success"
+                title="Conversion completed!"
+                description={`${conversionResult?.length ?? 0} file(s) successfully generated.`}
+                outputFiles={conversionResult ?? undefined}
+                onReveal={handleRevealInFinder}
+              />
 
               {/* Merge progress panel */}
-              <AnimatePresence>
-                {activeOperation === "Merge" && isMerging && (
-                  <motion.section
-                    key="merge-progress"
-                    className="stack-panel status-panel progress-panel"
-                    initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                    transition={{ duration: 0.22 }}
-                  >
-                    <div className="status-heading">
-                      <LoaderCircle className="spin-icon" size={18} />
-                      <strong>{mergeProgress.message}</strong>
-                      <span>{mergeProgress.percentage}%</span>
-                    </div>
-
-                    <div className="progress-track">
-                      <motion.div
-                        className="progress-fill"
-                        animate={{
-                          width: `${mergeProgress.percentage}%`,
-                        }}
-                        transition={{ duration: 0.3, ease: "easeOut" }}
-                      />
-                    </div>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <ProgressPanel
+                isVisible={activeOperation === "Merge" && isMerging}
+                panelKey="merge-progress"
+                message={mergeProgress.message}
+                percentage={mergeProgress.percentage}
+              />
 
               {/* Merge error panel */}
-              <AnimatePresence>
-                {activeOperation === "Merge" && mergeError && (
-                  <motion.section
-                    key="merge-error"
-                    className="stack-panel status-panel error-panel"
-                    initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                    transition={{ duration: 0.22 }}
-                  >
-                    <div className="status-heading">
-                      <AlertCircle size={18} />
-                      <strong>Merge failed</strong>
-                    </div>
-                    <span className="status-description">{mergeError}</span>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <ErrorPanel
+                isVisible={activeOperation === "Merge" && !!mergeError}
+                panelKey="merge-error"
+                title="Merge failed"
+                message={mergeError ?? ""}
+              />
 
               {/* Merge success panel */}
-              <AnimatePresence>
-                {activeOperation === "Merge" && mergeResult && (
-                  <motion.section
-                    key="merge-success"
-                    className="stack-panel status-panel success-panel"
-                    initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                    transition={{ duration: 0.22 }}
-                  >
-                    <div className="success-content">
-                      <div className="status-heading">
-                        <CheckCircle2 size={18} />
-                        <strong>PDF successfully merged!</strong>
-                      </div>
-                      <span className="status-description">
-                        {mergeResult.split("/").pop()}
-                      </span>
-                    </div>
-
-                    <button
-                      className="reveal-button"
-                      onClick={() => handleRevealInFinder(mergeResult)}
-                    >
-                      <File size={14} />
-                      Show in Finder
-                    </button>
-                  </motion.section>
-                )}
-              </AnimatePresence>
+              <SuccessPanel
+                isVisible={activeOperation === "Merge" && !!mergeResult}
+                panelKey="merge-success"
+                title="PDF successfully merged!"
+                description={mergeResult?.split("/").pop() ?? ""}
+                onReveal={handleRevealInFinder}
+                revealPath={mergeResult ?? undefined}
+              />
             </div>
 
             {/* Split progress panel */}
-            <AnimatePresence>
-              {activeOperation === "Split" && isSplitting && (
-                <motion.section
-                  key="split-progress"
-                  className="stack-panel status-panel progress-panel"
-                  initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                  transition={{ duration: 0.22 }}
-                >
-                  <div className="status-heading">
-                    <LoaderCircle className="spin-icon" size={18} />
-                    <strong>{splitProgress.message}</strong>
-                    <span>{splitProgress.percentage}%</span>
-                  </div>
-
-                  <div className="progress-track">
-                    <motion.div
-                      className="progress-fill"
-                      animate={{ width: `${splitProgress.percentage}%` }}
-                      transition={{ duration: 0.3, ease: "easeOut" }}
-                    />
-                  </div>
-
-                  <span className="progress-pages">
-                    {splitProgress.current} of {splitProgress.total} completed
-                  </span>
-                </motion.section>
-              )}
-            </AnimatePresence>
+            <ProgressPanel
+              isVisible={activeOperation === "Split" && isSplitting}
+              panelKey="split-progress"
+              message={splitProgress.message}
+              percentage={splitProgress.percentage}
+              detail={`${splitProgress.current} of ${splitProgress.total} completed`}
+            />
 
             {/* Split error panel */}
-            <AnimatePresence>
-              {activeOperation === "Split" && splitError && (
-                <motion.section
-                  key="split-error"
-                  className="stack-panel status-panel error-panel"
-                  initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                  transition={{ duration: 0.22 }}
-                >
-                  <div className="status-heading">
-                    <AlertCircle size={18} />
-                    <strong>Split failed</strong>
-                  </div>
-
-                  <span className="status-description">{splitError}</span>
-                </motion.section>
-              )}
-            </AnimatePresence>
+            <ErrorPanel
+              isVisible={activeOperation === "Split" && !!splitError}
+              panelKey="split-error"
+              title="Split failed"
+              message={splitError ?? ""}
+            />
 
             {/* Split success panel */}
-            <AnimatePresence>
-              {activeOperation === "Split" && splitResult && (
-                <motion.section
-                  key="split-success"
-                  className="stack-panel status-panel success-panel"
-                  initial={{ opacity: 0, y: 22, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                  transition={{ duration: 0.22 }}
-                >
-                  <div className="success-content">
-                    <div className="status-heading">
-                      <CheckCircle2 size={18} />
-                      <strong>PDF successfully split!</strong>
-                    </div>
-
-                    <span className="status-description">
-                      {splitResult.length} PDF file(s) generated.
-                    </span>
-
-                    <div className="result-files">
-                      {splitResult.slice(0, 3).map((path) => (
-                        <span key={path}>{path.split("/").pop()}</span>
-                      ))}
-
-                      {splitResult.length > 3 && (
-                        <span>+{splitResult.length - 3} more files</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <button
-                    className="reveal-button"
-                    onClick={() => handleRevealInFinder(splitResult[0])}
-                  >
-                    <File size={14} />
-                    Show in Finder
-                  </button>
-                </motion.section>
-              )}
-            </AnimatePresence>
+            <SuccessPanel
+              isVisible={activeOperation === "Split" && !!splitResult}
+              panelKey="split-success"
+              title="PDF successfully split!"
+              description={`${splitResult?.length ?? 0} PDF file(s) generated.`}
+              outputFiles={splitResult ?? undefined}
+              onReveal={handleRevealInFinder}
+            />
 
             {/* FIXED HOTBAR: always stays at the bottom. */}
             <motion.section
