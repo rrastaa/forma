@@ -1,3 +1,4 @@
+
 import {
   File,
   X,
@@ -7,7 +8,7 @@ import {
   Combine,
   FileImage,
   FileText,
-  Scissors
+  Scissors,
 } from "lucide-react";
 
 import type { SelectedFile } from "./types/file";
@@ -21,8 +22,16 @@ import {
   getAvailableOperations,
 } from "./utils/fileUtils";
 
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-import { useEffect, useRef, useState } from "react";
+import { useSelectedFiles } from "./hooks/useSelectedFiles";
+import { useFinderShortcut } from "./hooks/useFinderShortcut";
+import { useConvert } from "./hooks/useConvert";
 
 import {
   DndContext,
@@ -49,31 +58,14 @@ import {
   primaryMonitor,
 } from "@tauri-apps/api/window";
 
-import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
-import {
-  getSelectedFinderFiles,
-  revealInFinder,
-} from "./services/fileService";
-
-import {
-  convertPdf,
-  convertImageToPdf,
-  type ConversionFormat,
-} from "./services/convertService";
-
+import { revealInFinder } from "./services/fileService";
 import { mergePdf } from "./services/mergeService";
+import { splitPdf } from "./services/splitService";
 
-import {
-  splitPdf,
-  type SplitMode,
-} from "./services/splitService";
 import { AnimatePresence, motion } from "motion/react";
-
-
 import { listen } from "@tauri-apps/api/event";
+
 import "./App.css";
-
-
 
 function SortableFileItem({
   file,
@@ -120,24 +112,44 @@ function SortableFileItem({
 }
 
 function App() {
-  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
-  const selectedFilesRef = useRef<SelectedFile[]>([]);
+  console.log("[DEBUG] App component rendered");
 
+  // ==========================================
+  // FILE STATE
+  // ==========================================
+
+  const {
+    selectedFiles,
+    setSelectedFiles,
+    loadSelectedFiles,
+  } = useSelectedFiles();
+
+  const selectedFilesRef = useRef<SelectedFile[]>([]);
   const selectedFile = selectedFiles[0] ?? null;
+
+  // ==========================================
+  // GENERAL UI STATE
+  // ==========================================
 
   const [activeOperation, setActiveOperation] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
 
-  const [isConverting, setIsConverting] = useState(false);
-  const [conversionResult, setConversionResult] = useState<string[] | null>(null);
-  const [conversionError, setConversionError] = useState<string | null>(null);
+  // ==========================================
+  // CONVERSION
+  // ==========================================
 
-  const [conversionProgress, setConversionProgress] = useState<ProgressData>({
-    current: 0,
-    total: 0,
-    percentage: 0,
-    message: "Preparing conversion...",
-  });
+  const {
+    isConverting,
+    conversionResult,
+    conversionError,
+    conversionProgress,
+    handleConvert,
+    resetConversion,
+  } = useConvert(selectedFiles);
+
+  // ==========================================
+  // MERGE STATE
+  // ==========================================
 
   const [isMerging, setIsMerging] = useState(false);
   const [mergeResult, setMergeResult] = useState<string | null>(null);
@@ -150,9 +162,14 @@ function App() {
     message: "Preparing merge...",
   });
 
+  // ==========================================
+  // SPLIT STATE
+  // ==========================================
+
   const [isSplitting, setIsSplitting] = useState(false);
   const [splitResult, setSplitResult] = useState<string[] | null>(null);
   const [splitError, setSplitError] = useState<string | null>(null);
+
   const [splitMode, setSplitMode] = useState<"range" | "all">("range");
   const [pageRanges, setPageRanges] = useState("");
 
@@ -163,12 +180,127 @@ function App() {
     message: "Preparing PDF split...",
   });
 
-  // Keep the latest selected files available to keyboard handlers.
+  // ==========================================
+  // DERIVED VALUES
+  // ==========================================
+
+  const availableOperations = selectedFile
+    ? getAvailableOperations(selectedFile.extension)
+    : [];
+
+  const canMerge =
+    selectedFiles.length >= 2 &&
+    selectedFiles.every(
+      (file) => file.extension.toLowerCase() === "pdf"
+    );
+
+  const canSplit =
+    selectedFiles.length === 1 &&
+    selectedFile?.extension.toLowerCase() === "pdf";
+
+  const FileIcon = selectedFile
+    ? getFileIcon(selectedFile.extension)
+    : File;
+
+  // ==========================================
+  // RESET OPERATION
+  // ==========================================
+
+  const resetOperation = useCallback(() => {
+    setActiveOperation(null);
+
+    resetConversion();
+
+    setMergeResult(null);
+    setMergeError(null);
+
+    setSplitResult(null);
+    setSplitError(null);
+  }, [resetConversion]);
+
+  // ==========================================
+  // SHOW FORMA
+  // ==========================================
+
+  const showForma = useCallback(async () => {
+    console.log("[DEBUG] showForma called");
+
+    const files = await loadSelectedFiles();
+
+    if (files.length === 0) {
+      console.log("[FORMA] No files selected");
+      return;
+    }
+
+    console.log("[FORMA] Finder files:", files);
+
+    setSelectedFiles(files);
+    setActiveOperation(null);
+
+    resetConversion();
+
+    setMergeResult(null);
+    setMergeError(null);
+
+    setSplitResult(null);
+    setSplitError(null);
+
+    setSplitMode("range");
+    setPageRanges("");
+
+    const appWindow = getCurrentWindow();
+    const monitor =
+      (await currentMonitor()) ?? (await primaryMonitor());
+
+    if (monitor) {
+      const width = 1080;
+      const height = 420;
+      const scale = monitor.scaleFactor;
+
+      await appWindow.setSize(new LogicalSize(width, height));
+
+      const x =
+        monitor.position.x +
+        (monitor.size.width - width * scale) / 2;
+
+      const y =
+        monitor.position.y +
+        monitor.size.height -
+        height * scale -
+        48 * scale -
+        50;
+
+      await appWindow.setPosition(new PhysicalPosition(x, y));
+    }
+
+    await appWindow.show();
+    await appWindow.setFocus();
+
+    setIsVisible(true);
+  }, [loadSelectedFiles, setSelectedFiles, resetConversion]);
+
+  // ==========================================
+  // FINDER SHORTCUT
+  // ==========================================
+
+  console.log("[DEBUG] Before finder shortcut");
+
+  useFinderShortcut(showForma);
+
+  console.log("[DEBUG] After finder shortcut");
+
+  // ==========================================
+  // SELECTED FILES REF
+  // ==========================================
+
   useEffect(() => {
     selectedFilesRef.current = selectedFiles;
   }, [selectedFiles]);
 
-  // Drag and drop configuration.
+  // ==========================================
+  // DRAG AND DROP CONFIGURATION
+  // ==========================================
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -177,131 +309,76 @@ function App() {
     })
   );
 
-  // Conversion progress listener.
+  // ==========================================
+  // MERGE PROGRESS LISTENER
+  // ==========================================
+
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
 
     const setupListener = async () => {
-      unlisten = await listen<ProgressData>(
-        "conversion-progress",
+      const cleanup = await listen<ProgressData>(
+        "merge-progress",
         (event) => {
-          setConversionProgress(event.payload);
+          setMergeProgress(event.payload);
         }
       );
-    };
 
-    void setupListener();
-
-    return () => {
-      unlisten?.();
-    };
-  }, []);
-
-  // Merge progress listener.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    const setupListener = async () => {
-      unlisten = await listen<ProgressData>("merge-progress", (event) => {
-        setMergeProgress(event.payload);
-      });
-    };
-
-    void setupListener();
-
-    return () => {
-      unlisten?.();
-    };
-  }, []);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    const setupListener = async () => {
-      unlisten = await listen<ProgressData>("split-progress", (event) => {
-        setSplitProgress(event.payload);
-      });
-    };
-
-    void setupListener();
-
-    return () => {
-      unlisten?.();
-    };
-  }, []);
-
-  // Finder shortcut and keyboard controls.
-  useEffect(() => {
-    const appWindow = getCurrentWindow();
-    const shortcut = "Alt+Shift+Space";
-
-    const showForma = async () => {
-      const files = await getSelectedFinderFiles();
-
-      console.log("[FORMA] Finder files:", files);
-
-      setSelectedFiles(files);
-      setActiveOperation(null);
-
-      setConversionResult(null);
-      setConversionError(null);
-
-      setMergeResult(null);
-      setMergeError(null);
-
-      setSplitResult(null);
-      setSplitError(null);
-      setSplitMode("range");
-      setPageRanges("");
-
-      const monitor = (await currentMonitor()) ?? (await primaryMonitor());
-
-      if (monitor) {
-        const width = 1080;
-        const height = 420;
-        const scale = monitor.scaleFactor;
-
-        await appWindow.setSize(new LogicalSize(width, height));
-
-        const x =
-          monitor.position.x +
-          (monitor.size.width - width * scale) / 2;
-
-        const y =
-          monitor.position.y +
-          monitor.size.height -
-          height * scale -
-          48 * scale - 50;
-
-        await appWindow.setPosition(new PhysicalPosition(x, y));
+      if (cancelled) {
+        cleanup();
+      } else {
+        unlisten = cleanup;
       }
-
-      await appWindow.show();
-      await appWindow.setFocus();
-
-      setIsVisible(true);
     };
 
-    const setupShortcut = async () => {
-      await register(shortcut, async (event) => {
-        if (event.state !== "Pressed") return;
+    void setupListener();
 
-        try {
-          await showForma();
-        } catch (error) {
-          console.error("[FORMA ERROR]", error);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // ==========================================
+  // SPLIT PROGRESS LISTENER
+  // ==========================================
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    const setupListener = async () => {
+      const cleanup = await listen<ProgressData>(
+        "split-progress",
+        (event) => {
+          setSplitProgress(event.payload);
         }
-      });
+      );
 
-      console.log("[FORMA] Shortcut registered!");
+      if (cancelled) {
+        cleanup();
+      } else {
+        unlisten = cleanup;
+      }
     };
 
-    void setupShortcut().catch(console.error);
+    void setupListener();
 
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // ==========================================
+  // KEYBOARD CONTROLS
+  // ==========================================
+
+  useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
 
-      // Ignore shortcuts when typing in input fields.
       if (
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
@@ -336,31 +413,27 @@ function App() {
 
     return () => {
       window.removeEventListener("keydown", handleKeyboard);
-      void unregister(shortcut).catch(console.error);
     };
   }, []);
 
-  const availableOperations = selectedFile
-    ? getAvailableOperations(selectedFile.extension)
-    : [];
+  // ==========================================
+  // REORDER SELECTED FILES
+  // ==========================================
 
-  const canMerge =
-    selectedFiles.length >= 2 &&
-    selectedFiles.every(
-      (file) => file.extension.toLowerCase() === "pdf"
-    );
-
-  const FileIcon = selectedFile
-    ? getFileIcon(selectedFile.extension)
-    : File;
-
-  // Reorder selected files.
-  const handleDragEnd = (activeId: string | number, overId?: string | number) => {
+  const handleDragEnd = (
+    activeId: string | number,
+    overId?: string | number
+  ) => {
     if (!overId || activeId === overId) return;
 
     setSelectedFiles((current) => {
-      const oldIndex = current.findIndex((file) => file.path === activeId);
-      const newIndex = current.findIndex((file) => file.path === overId);
+      const oldIndex = current.findIndex(
+        (file) => file.path === activeId
+      );
+
+      const newIndex = current.findIndex(
+        (file) => file.path === overId
+      );
 
       if (oldIndex === -1 || newIndex === -1) return current;
 
@@ -368,48 +441,10 @@ function App() {
     });
   };
 
-  // Convert file.
-  const handleConvert = async (
-    format: ConversionFormat
-  ) => {
-    if (!selectedFile) return;
+  // ==========================================
+  // MERGE PDF
+  // ==========================================
 
-    if (selectedFiles.length > 1) {
-      setConversionError("Multiple file conversion is not supported yet.");
-      return;
-    }
-
-    const extension = selectedFile.extension.toLowerCase();
-    const isPdf = extension === "pdf";
-
-    if ((isPdf && format === "pdf") || (!isPdf && format !== "pdf")) {
-      return;
-    }
-
-    setIsConverting(true);
-    setConversionResult(null);
-    setConversionError(null);
-
-    try {
-      let result: string[];
-    
-      if (isPdf) {
-        if (format === "pdf") return;
-    
-        result = await convertPdf(selectedFile.path, format);
-      } else {
-        result = await convertImageToPdf(selectedFile.path);
-      }
-    
-      setConversionResult(result);
-    } catch (error) {
-      setConversionError(String(error));
-    } finally {
-      setIsConverting(false);
-    }
-  };
-
-  // Merge PDF files.
   const handleMerge = async () => {
     if (selectedFiles.length < 2) {
       setMergeError("Select at least 2 PDF files.");
@@ -438,9 +473,9 @@ function App() {
     }
   };
 
-  const canSplit =
-    selectedFiles.length === 1 &&
-    selectedFile?.extension.toLowerCase() === "pdf";
+  // ==========================================
+  // SPLIT PDF
+  // ==========================================
 
   const handleSplit = async () => {
     if (!canSplit || !selectedFile) {
@@ -472,7 +507,10 @@ function App() {
     }
   };
 
-  // Reveal output in Finder.
+  // ==========================================
+  // REVEAL OUTPUT IN FINDER
+  // ==========================================
+
   const handleRevealInFinder = async (path: string) => {
     try {
       await revealInFinder(path);
@@ -484,26 +522,20 @@ function App() {
       } else if (activeOperation === "Split") {
         setSplitError(String(error));
       } else {
-        setConversionError(String(error));
+        console.error(
+          "[FORMA] Failed to reveal conversion output:",
+          error
+        );
       }
     }
   };
 
+  // ==========================================
+  // CLOSE FORMA
+  // ==========================================
+
   const closeForma = () => {
     setIsVisible(false);
-  };
-
-  const resetOperation = () => {
-    setActiveOperation(null);
-
-    setConversionResult(null);
-    setConversionError(null);
-
-    setMergeResult(null);
-    setMergeError(null);
-
-    setSplitResult(null);
-    setSplitError(null);
   };
 
   return (
@@ -754,8 +786,9 @@ function App() {
 
                     <div className="split-mode-list">
                       <button
-                        className={`split-mode-button ${splitMode === "range" ? "active" : ""
-                          }`}
+                        className={`split-mode-button ${
+                          splitMode === "range" ? "active" : ""
+                        }`}
                         onClick={() => {
                           setSplitMode("range");
                           setSplitError(null);
@@ -770,8 +803,9 @@ function App() {
                       </button>
 
                       <button
-                        className={`split-mode-button ${splitMode === "all" ? "active" : ""
-                          }`}
+                        className={`split-mode-button ${
+                          splitMode === "all" ? "active" : ""
+                        }`}
                         onClick={() => {
                           setSplitMode("all");
                           setSplitError(null);
@@ -795,7 +829,9 @@ function App() {
                           className="split-range-input"
                           type="text"
                           value={pageRanges}
-                          onChange={(event) => setPageRanges(event.target.value)}
+                          onChange={(event) =>
+                            setPageRanges(event.target.value)
+                          }
                           placeholder="e.g. 1-3, 5, 8-10"
                           disabled={isSplitting}
                         />
@@ -1127,8 +1163,9 @@ function App() {
                   return (
                     <motion.button
                       key={operation.name}
-                      className={`operation-button ${isActive ? "active" : ""
-                        } ${!isAvailable ? "disabled" : ""}`}
+                      className={`operation-button ${
+                        isActive ? "active" : ""
+                      } ${!isAvailable ? "disabled" : ""}`}
                       disabled={!isAvailable}
                       onClick={() => {
                         setActiveOperation(
@@ -1137,10 +1174,13 @@ function App() {
                             : operation.name
                         );
 
-                        setConversionResult(null);
-                        setConversionError(null);
+                        resetConversion();
+
                         setMergeResult(null);
                         setMergeError(null);
+
+                        setSplitResult(null);
+                        setSplitError(null);
                       }}
                       whileHover={isAvailable ? { y: -4, scale: 1.04 } : {}}
                       whileTap={isAvailable ? { scale: 0.94 } : {}}
