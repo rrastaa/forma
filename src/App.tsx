@@ -17,6 +17,8 @@ import { useFinderShortcut } from "./hooks/useFinderShortcut";
 import { useConvert } from "./hooks/useConvert";
 import { useMerge } from "./features/merge/useMerge";
 import { useSplit } from "./features/split/useSplit";
+import { useCompress } from "./features/compress/useCompress";
+import { useMove } from "./features/move/useMove";
 
 import { FileContext } from "./components/file/fileContext";
 import { SelectedFiles } from "./components/file/selectedFiles";
@@ -36,10 +38,14 @@ import { AnimatePresence, motion } from "motion/react";
 import { ConvertMenu } from "./features/convert/convertMenu";
 import { MergeMenu } from "./features/merge/mergeMenu";
 import { SplitMenu } from "./features/split/splitMenu";
+import { CompressMenu } from "./features/compress/compressMenu";
+import { MoveMenu } from "./features/move/moveMenu";
 
 import { ProgressPanel } from "./components/ui/progressPanel";
 import { ErrorPanel } from "./components/ui/errorPanel";
 import { SuccessPanel } from "./components/ui/successPanel";
+
+
 
 import "./App.css";
 
@@ -112,6 +118,38 @@ function App() {
   } = useSplit(selectedFiles);
 
   // ==========================================
+  // COMPRESS STATE
+  // ==========================================
+
+  const {
+    estimates,
+    selectedPreset,
+    setSelectedPreset,
+    isEstimating,
+    isCompressing,
+    compressionResult,
+    compressionError,
+    handleCompress,
+    resetCompression,
+  } = useCompress(selectedFiles);
+
+  // ==========================================
+  // MOVE STATE
+  // ==========================================
+
+  const {
+    destination,
+    conflictAction,
+    setConflictAction,
+    isMoving,
+    moveResults,
+    moveError,
+    chooseDestination,
+    handleMove,
+    resetMove,
+  } = useMove(selectedFiles);
+
+  // ==========================================
   // DERIVED VALUES
   // ==========================================
 
@@ -129,6 +167,14 @@ function App() {
     selectedFiles.length === 1 &&
     selectedFile?.extension.toLowerCase() === "pdf";
 
+  const canCompress =
+    selectedFiles.length === 1 &&
+    selectedFile?.extension.toLowerCase() === "pdf";
+
+  const canMove =
+    selectedFiles.length > 0 &&
+    !!destination;
+
   // ==========================================
   // RESET OPERATION
   // ==========================================
@@ -138,9 +184,16 @@ function App() {
 
     resetConversion();
     resetMerge();
-
     resetSplit();
-  }, [resetConversion, resetMerge, resetSplit]);
+    resetCompression();
+    resetMove();
+  }, [
+    resetConversion,
+    resetMerge,
+    resetSplit,
+    resetCompression,
+    resetMove,
+  ]);
 
   // ==========================================
   // SHOW FORMA
@@ -162,10 +215,10 @@ function App() {
     setActiveOperation(null);
 
     resetConversion();
-
     resetMerge();
-
     resetSplit();
+    resetCompression();
+    resetMove();
 
     setSplitMode("range");
     setPageRanges("");
@@ -374,6 +427,37 @@ function App() {
                 onBack={resetOperation}
               />
 
+              {/* Compress submenu */}
+              <CompressMenu
+                isOpen={activeOperation === "Compress"}
+                selectedFile={selectedFile}
+                selectedFiles={selectedFiles}
+                estimates={estimates}
+                selectedPreset={selectedPreset}
+                setSelectedPreset={setSelectedPreset}
+                isEstimating={isEstimating}
+                isCompressing={isCompressing}
+                handleCompress={handleCompress}
+                compressionError={compressionError}
+                onBack={resetOperation}
+              />
+
+              {/* Move submenu */}
+              <MoveMenu
+                isOpen={activeOperation === "Move"}
+                selectedFiles={selectedFiles}
+                destination={destination}
+                chooseDestination={chooseDestination}
+                conflictAction={conflictAction}
+                setConflictAction={setConflictAction}
+                isMoving={isMoving}
+                moveResults={moveResults}
+                moveError={moveError}
+                canMove={canMove}
+                onMove={handleMove}
+                onBack={resetOperation}
+              />
+
               {/* Conversion progress panel */}
               <ProgressPanel
                 isVisible={activeOperation === "Convert" && isConverting}
@@ -455,6 +539,28 @@ function App() {
               onReveal={handleRevealInFinder}
             />
 
+            {/* Compress error panel */}
+            <ErrorPanel
+              isVisible={
+                activeOperation === "Compress" && !!compressionError
+              }
+              panelKey="compress-error"
+              title="Compression failed"
+              message={compressionError ?? ""}
+            />
+
+            {/* Compress success panel */}
+            <SuccessPanel
+              isVisible={
+                activeOperation === "Compress" && !!compressionResult
+              }
+              panelKey="compress-success"
+              title="PDF successfully compressed!"
+              description={compressionResult?.split("/").pop() ?? ""}
+              onReveal={handleRevealInFinder}
+              revealPath={compressionResult ?? undefined}
+            />
+
             {/* FIXED HOTBAR: always stays at the bottom. */}
             <motion.section
               className="hotbar-shell"
@@ -476,7 +582,9 @@ function App() {
                       ? canMerge
                       : operation.name === "Split"
                         ? canSplit
-                        : availableOperations.includes(operation.name);
+                        : operation.name === "Compress"
+                          ? canCompress
+                          : availableOperations.includes(operation.name);
 
                   const isActive = activeOperation === operation.name;
 
@@ -495,8 +603,9 @@ function App() {
 
                         resetConversion();
                         resetMerge();
-
                         resetSplit();
+                        resetCompression();
+                        resetMove();
                       }}
                       whileHover={isAvailable ? { y: -4, scale: 1.04 } : {}}
                       whileTap={isAvailable ? { scale: 0.94 } : {}}

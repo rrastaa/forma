@@ -4,7 +4,9 @@ use std::path::Path;
 use std::process::Command;
 use tauri::{Emitter, Manager};
 
+mod compress;
 mod document;
+mod move_file;
 
 #[derive(Clone, Serialize)]
 struct ConversionProgress {
@@ -721,6 +723,7 @@ fn split_pdf_blocking(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -732,6 +735,9 @@ pub fn run() {
             reveal_in_finder,
             document::convert_docx_to_pdf,
             document::convert_pdf_to_docx,
+            compress::estimate_pdf_compression,
+            compress::compress_pdf,
+            move_file::move_files,
         ])
         .setup(|_app| {
             let window = _app.get_webview_window("main").unwrap();

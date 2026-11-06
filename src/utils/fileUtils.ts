@@ -27,12 +27,12 @@ import {
     const ext = extension.toLowerCase();
   
     if (ext === "pdf") {
-      return ["Convert", "Merge", "Split", "Compress"];
+      return ["Convert", "Merge", "Split", "Compress", "Move"];
     }
   
     if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
-      return ["Convert", "Merge", "Compress", "Resize", "Transform"];
+      return ["Convert", "Merge", "Compress", "Move", "Transform"];
     }
   
-    return ["Convert", "Compress"];
+    return ["Convert", "Compress", "Move"];
   }
