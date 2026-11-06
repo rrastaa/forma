@@ -4,7 +4,7 @@ import {
   Scissors,
   Minimize2,
   FolderInput,
-  RotateCw,
+  // RotateCw,
 } from "lucide-react";
 
 import type { LucideIcon } from "lucide-react";
