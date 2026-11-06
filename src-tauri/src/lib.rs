@@ -4,6 +4,8 @@ use std::path::Path;
 use std::process::Command;
 use tauri::{Emitter, Manager};
 
+mod document;
+
 #[derive(Clone, Serialize)]
 struct ConversionProgress {
     current: usize,
@@ -273,7 +275,7 @@ fn convert_image_to_pdf_blocking(
         .unwrap_or("")
         .to_lowercase();
 
-    if !["png", "jpg", "jpeg", "webp","docx"].contains(&extension.as_str()) {
+    if !["png", "jpg", "jpeg", "webp"].contains(&extension.as_str()) {
         return Err("Only PNG, JPG, JPEG, and WebP images are supported.".to_string());
     }
 
@@ -728,6 +730,8 @@ pub fn run() {
             merge_pdf,
             split_pdf,
             reveal_in_finder,
+            document::convert_docx_to_pdf,
+            document::convert_pdf_to_docx,
         ])
         .setup(|_app| {
             let window = _app.get_webview_window("main").unwrap();
