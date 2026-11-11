@@ -29,7 +29,6 @@ export function ConvertMenu({
     const isJpg = ["jpg", "jpeg"].includes(extension ?? "");
     const isPng = extension === "png";
 
-    const isImage = isJpg || isPng;
     const isDisabled = isConverting || selectedFiles.length > 1;
 
     return (

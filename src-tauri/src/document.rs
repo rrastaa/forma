@@ -1,8 +1,7 @@
-
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 #[tauri::command]
 pub async fn convert_docx_to_pdf(
@@ -16,17 +15,19 @@ pub async fn convert_docx_to_pdf(
             return Err("Input file does not exist.".to_string());
         }
 
-        if input.extension()
+        if input
+            .extension()
             .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_lowercase()) != Some("docx".to_string())
+            .map(|ext| ext.to_lowercase())
+            != Some("docx".to_string())
         {
             return Err("Input file must be a DOCX document.".to_string());
         }
 
-        let output_dir = input.parent()
-            .ok_or("Invalid input directory.")?;
+        let output_dir = input.parent().ok_or("Invalid input directory.")?;
 
-        let output_name = input.file_stem()
+        let output_name = input
+            .file_stem()
             .and_then(|name| name.to_str())
             .ok_or("Invalid input filename.")?;
 
@@ -38,25 +39,23 @@ pub async fn convert_docx_to_pdf(
             counter += 1;
         }
 
-        let temp_dir = output_dir.join(format!(
-            ".forma-temp-{}",
-            std::process::id()
-        ));
+        let temp_dir = output_dir.join(format!(".forma-temp-{}", std::process::id()));
 
         fs::create_dir(&temp_dir)
             .map_err(|e| format!("Failed to create temporary directory: {e}"))?;
 
         let conversion_result = (|| {
-            let _ = app.emit("conversion-progress", serde_json::json!({
-                "current": 0,
-                "total": 1,
-                "percentage": 10,
-                "message": "Converting DOCX to PDF..."
-            }));
+            let _ = app.emit(
+                "conversion-progress",
+                serde_json::json!({
+                    "current": 0,
+                    "total": 1,
+                    "percentage": 10,
+                    "message": "Converting DOCX to PDF..."
+                }),
+            );
 
-            let result = Command::new(
-                "/Applications/LibreOffice.app/Contents/MacOS/soffice"
-            )
+            let result = Command::new("/Applications/LibreOffice.app/Contents/MacOS/soffice")
                 .arg("--headless")
                 .arg("--convert-to")
                 .arg("pdf")
@@ -82,12 +81,15 @@ pub async fn convert_docx_to_pdf(
             fs::rename(&generated_path, &output_path)
                 .map_err(|e| format!("Failed to move output PDF: {e}"))?;
 
-            let _ = app.emit("conversion-progress", serde_json::json!({
-                "current": 1,
-                "total": 1,
-                "percentage": 100,
-                "message": "Conversion completed!"
-            }));
+            let _ = app.emit(
+                "conversion-progress",
+                serde_json::json!({
+                    "current": 1,
+                    "total": 1,
+                    "percentage": 100,
+                    "message": "Conversion completed!"
+                }),
+            );
 
             Ok(vec![output_path.to_string_lossy().to_string()])
         })();
@@ -108,23 +110,23 @@ pub async fn convert_pdf_to_docx(
     tauri::async_runtime::spawn_blocking(move || {
         let input = Path::new(&input_path);
 
-        // Validate input file.
         if !input.exists() || !input.is_file() {
             return Err("Input file does not exist.".to_string());
         }
 
-        if input.extension()
+        if input
+            .extension()
             .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("pdf")) != Some(true)
+            .map(|ext| ext.eq_ignore_ascii_case("pdf"))
+            != Some(true)
         {
             return Err("Input file must be a PDF document.".to_string());
         }
 
-        // Determine output directory and filename.
-        let output_dir = input.parent()
-            .ok_or("Invalid input directory.")?;
+        let output_dir = input.parent().ok_or("Invalid input directory.")?;
 
-        let output_name = input.file_stem()
+        let output_name = input
+            .file_stem()
             .and_then(|name| name.to_str())
             .ok_or("Invalid input filename.")?;
 
@@ -136,35 +138,31 @@ pub async fn convert_pdf_to_docx(
             counter += 1;
         }
 
-        // Resolve Python environment and converter script.
-        let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .ok_or("Failed to resolve project directory.")?;
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|e| format!("Failed to locate app resources: {e}"))?;
 
-        let python_path = project_root
-            .join(".venv-pdf2docx/bin/python");
+        let converter_path = resource_dir.join("pdf2docx").join("forma-pdf2docx");
 
-        let script_path = project_root
-            .join("src-tauri/python/pdf_to_docx.py");
-
-        if !python_path.exists() {
-            return Err("Python environment not found.".to_string());
+        if !converter_path.exists() {
+            return Err(format!(
+                "PDF converter executable not found: {}",
+                converter_path.display()
+            ));
         }
 
-        if !script_path.exists() {
-            return Err("PDF to DOCX converter script not found.".to_string());
-        }
+        let _ = app.emit(
+            "conversion-progress",
+            serde_json::json!({
+                "current": 0,
+                "total": 1,
+                "percentage": 10,
+                "message": "Converting PDF to DOCX..."
+            }),
+        );
 
-        let _ = app.emit("conversion-progress", serde_json::json!({
-            "current": 0,
-            "total": 1,
-            "percentage": 10,
-            "message": "Converting PDF to DOCX..."
-        }));
-
-        // Execute Python converter.
-        let result = Command::new(&python_path)
-            .arg(&script_path)
+        let result = Command::new(&converter_path)
             .arg(&input_path)
             .arg(&output_path)
             .output()
@@ -183,12 +181,15 @@ pub async fn convert_pdf_to_docx(
             return Err("Converted DOCX was not generated.".to_string());
         }
 
-        let _ = app.emit("conversion-progress", serde_json::json!({
-            "current": 1,
-            "total": 1,
-            "percentage": 100,
-            "message": "Conversion completed!"
-        }));
+        let _ = app.emit(
+            "conversion-progress",
+            serde_json::json!({
+                "current": 1,
+                "total": 1,
+                "percentage": 100,
+                "message": "Conversion completed!"
+            }),
+        );
 
         Ok(vec![output_path.to_string_lossy().to_string()])
     })
