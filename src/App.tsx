@@ -243,7 +243,7 @@ function App() {
         monitor.size.height -
         height * scale -
         48 * scale -
-        50;
+        80;
 
       await appWindow.setPosition(new PhysicalPosition(x, y));
     }

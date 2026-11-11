@@ -2,7 +2,9 @@ use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tauri::{Emitter, Manager};
+use tauri::{Emitter,
+    //  Manager
+    };
 
 mod compress;
 mod document;
@@ -359,6 +361,134 @@ fn convert_image_to_pdf_blocking(
 
     Ok(vec![output_path.to_string_lossy().to_string()])
 }
+
+
+#[tauri::command]
+async fn convert_image(
+    app: tauri::AppHandle,
+    input_path: String,
+    output_format: String,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        convert_image_blocking(app, input_path, output_format)
+    })
+    .await
+    .map_err(|e| format!("Conversion task failed: {}", e))?
+}
+
+fn convert_image_blocking(
+    app: tauri::AppHandle,
+    input_path: String,
+    output_format: String,
+) -> Result<Vec<String>, String> {
+    let input = Path::new(&input_path);
+
+    if !input.exists() || !input.is_file() {
+        return Err("Source file does not exist.".to_string());
+    }
+
+    let input_extension = input
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let format = output_format.to_lowercase();
+
+    let valid_conversion =
+        (["jpg", "jpeg"].contains(&input_extension.as_str()) && format == "png")
+        || (input_extension == "png" && format == "jpg");
+
+    if !valid_conversion {
+        return Err("Unsupported image conversion.".to_string());
+    }
+
+    let magick_path = if Path::new("/opt/homebrew/bin/magick").exists() {
+        "/opt/homebrew/bin/magick"
+    } else {
+        "magick"
+    };
+
+    // Create a unique output directory.
+    let parent = input.parent().ok_or("Cannot determine source directory.")?;
+
+    let stem = input
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("image");
+
+    let mut output_dir = parent.join(format!("{}-converted", stem));
+    let mut counter = 2;
+
+    while output_dir.exists() {
+        output_dir = parent.join(format!("{}-converted-{}", stem, counter));
+        counter += 1;
+    }
+
+    fs::create_dir_all(&output_dir)
+        .map_err(|e| format!("Failed to create output folder: {}", e))?;
+
+    let output_path = output_dir.join(format!("{}.{}", stem, format));
+
+    // Initial progress.
+    let _ = app.emit(
+        "conversion-progress",
+        ConversionProgress {
+            current: 0,
+            total: 1,
+            percentage: 0,
+            message: "Preparing image conversion...".to_string(),
+        },
+    );
+
+    // Build ImageMagick command.
+    let mut command = Command::new(magick_path);
+
+    command
+        .arg(&input_path)
+        .arg("-auto-orient");
+
+    // Remove transparency when converting PNG to JPG.
+    if format == "jpg" {
+        command
+            .arg("-background")
+            .arg("white")
+            .arg("-alpha")
+            .arg("remove")
+            .arg("-alpha")
+            .arg("off");
+    }
+
+    let output = command
+        .arg(&output_path)
+        .output()
+        .map_err(|e| format!("Failed to execute ImageMagick: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Image conversion failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    if !output_path.exists() {
+        return Err("Converted image output was not created.".to_string());
+    }
+
+    // Completed progress.
+    let _ = app.emit(
+        "conversion-progress",
+        ConversionProgress {
+            current: 1,
+            total: 1,
+            percentage: 100,
+            message: "Image conversion completed!".to_string(),
+        },
+    );
+
+    Ok(vec![output_path.to_string_lossy().to_string()])
+}
+
 
 #[tauri::command]
 async fn merge_pdf(app: tauri::AppHandle, input_paths: Vec<String>) -> Result<String, String> {
@@ -730,6 +860,7 @@ pub fn run() {
             get_selected_finder_file,
             convert_pdf,
             convert_image_to_pdf,
+            convert_image,
             merge_pdf,
             split_pdf,
             reveal_in_finder,
@@ -740,9 +871,9 @@ pub fn run() {
             move_file::move_files,
         ])
         .setup(|_app| {
-            let window = _app.get_webview_window("main").unwrap();
+            // let window = _app.get_webview_window("main").unwrap();
 
-            window.open_devtools();
+            // window.open_devtools();
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -9,6 +9,7 @@ import {
     convertPdf,
     convertPdfToDocx,
     convertImageToPdf,
+    convertImage,
     convertDocxToPdf,
     type ConversionFormat,
 } from "../services/convertService";
@@ -25,7 +26,6 @@ export function useConvert(selectedFiles: SelectedFile[]) {
         message: "Preparing conversion...",
     });
 
-    // Listen to conversion progress from Rust backend.
     useEffect(() => {
         let unlisten: (() => void) | undefined;
         let cancelled = false;
@@ -53,7 +53,6 @@ export function useConvert(selectedFiles: SelectedFile[]) {
         };
     }, []);
 
-    // Convert selected file.
     const handleConvert = useCallback(
         async (format: ConversionFormat) => {
             const selectedFile = selectedFiles[0];
@@ -69,12 +68,19 @@ export function useConvert(selectedFiles: SelectedFile[]) {
 
             const isPdf = extension === "pdf";
             const isDocx = extension === "docx";
-            const isImage = ["png", "jpg", "jpeg", "webp"].includes(extension);
+            const isJpg = ["jpg", "jpeg"].includes(extension);
+            const isPng = extension === "png";
+            const isImage = isJpg || isPng || extension === "webp";
+
+            const isImageToImage =
+                (isJpg && format === "png") ||
+                (isPng && format === "jpg");
 
             // Validate conversion format.
             if (
                 (isPdf && !["png", "jpg", "docx"].includes(format)) ||
-                ((isDocx || isImage) && format !== "pdf") ||
+                (isDocx && format !== "pdf") ||
+                (isImage && format !== "pdf" && !isImageToImage) ||
                 (!isPdf && !isDocx && !isImage)
             ) {
                 return;
@@ -96,6 +102,11 @@ export function useConvert(selectedFiles: SelectedFile[]) {
                     );
                 } else if (isDocx) {
                     result = await convertDocxToPdf(selectedFile.path);
+                } else if (isImageToImage) {
+                    result = await convertImage(
+                        selectedFile.path,
+                        format as "png" | "jpg"
+                    );
                 } else {
                     result = await convertImageToPdf(selectedFile.path);
                 }
