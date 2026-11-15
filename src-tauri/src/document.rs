@@ -143,7 +143,10 @@ pub async fn convert_pdf_to_docx(
             .resource_dir()
             .map_err(|e| format!("Failed to locate app resources: {e}"))?;
 
-        let converter_path = resource_dir.join("pdf2docx").join("forma-pdf2docx");
+        let converter_path = resource_dir
+            .join("resources")
+            .join("pdf2docx")
+            .join("forma-pdf2docx");
 
         if !converter_path.exists() {
             return Err(format!(
